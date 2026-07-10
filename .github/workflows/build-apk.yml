@@ -1,0 +1,48 @@
+name: Build APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Configurer Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Rendre gradlew exécutable
+        run: chmod +x gradlew
+
+      - name: Nettoyer
+        run: ./gradlew clean
+
+      - name: Tests unitaires
+        run: ./gradlew testDebugUnitTest
+
+      - name: Compiler l'APK debug
+        run: ./gradlew assembleDebug
+
+      - name: Publier l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdf-empire-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publier les rapports de tests (en cas d'échec)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapports-tests
+          path: app/build/reports/
+          if-no-files-found: ignore

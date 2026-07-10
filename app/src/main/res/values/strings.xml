@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PDF Empire</string>
+
+    <!-- Navigation -->
+    <string name="tab_home">Accueil</string>
+    <string name="tab_files">Fichiers</string>
+    <string name="tab_tools">Outils</string>
+    <string name="tab_settings">Réglages</string>
+
+    <!-- Actions rapides -->
+    <string name="action_open_pdf">Ouvrir un PDF</string>
+    <string name="action_images_to_pdf">Images vers PDF</string>
+    <string name="action_merge">Fusionner des PDF</string>
+    <string name="action_extract_pages">Extraire des pages</string>
+
+    <!-- Accueil -->
+    <string name="section_favorites">Favoris</string>
+    <string name="section_recents">Récents</string>
+    <string name="empty_recents">Aucun document récent. Ouvre un PDF pour commencer.</string>
+    <string name="pages_count">%1$d pages</string>
+    <string name="favorite">Favori</string>
+
+    <!-- Fichiers -->
+    <string name="search_hint">Rechercher</string>
+    <string name="sort">Trier</string>
+    <string name="sort_by_name">Par nom</string>
+    <string name="sort_by_date">Par date d\'ouverture</string>
+    <string name="sort_by_size">Par taille</string>
+    <string name="empty_files">Aucun document dans l\'historique.</string>
+    <string name="share">Partager</string>
+    <string name="remove_from_history">Retirer de l\'historique</string>
+    <string name="remove_from_history_message">Retirer « %1$s » de l\'historique ? Le fichier original n\'est pas supprimé.</string>
+    <string name="confirm">Confirmer</string>
+    <string name="cancel">Annuler</string>
+
+    <!-- Lecteur -->
+    <string name="viewer_title">Lecteur</string>
+    <string name="back">Retour</string>
+    <string name="page_indicator">Page %1$d / %2$d</string>
+    <string name="page_number">Page %1$d</string>
+    <string name="error_protected_pdf">Ce PDF est protégé par mot de passe. La prise en charge arrive dans une prochaine version.</string>
+    <string name="error_unreadable_pdf">Impossible de lire ce document. Le fichier est peut-être corrompu ou inaccessible.</string>
+    <string name="go_to_page">Aller à la page</string>
+    <string name="go_to_page_hint">Numéro (1 à %1$d)</string>
+
+    <!-- Outils -->
+    <string name="tool_merge_description">Combiner plusieurs PDF en un seul document.</string>
+    <string name="tool_split_description">Créer un nouveau PDF à partir de pages choisies.</string>
+    <string name="tool_images_description">Convertir des photos ou images en PDF multipage.</string>
+    <string name="tools_coming_soon_title">Prochainement</string>
+    <string name="tools_coming_soon_body">Scanner avec la caméra, OCR, annotations, compression et protection par mot de passe seront ajoutés dans les prochaines étapes.</string>
+
+    <!-- Fusion -->
+    <string name="merge_instructions">Ajoute au moins deux PDF, mets-les dans l\'ordre voulu, puis lance la fusion. Les fichiers originaux ne sont jamais modifiés.</string>
+    <string name="add_pdfs">Ajouter des PDF</string>
+    <string name="move_up">Monter</string>
+    <string name="move_down">Descendre</string>
+    <string name="remove">Retirer</string>
+    <string name="merge_now">Fusionner</string>
+    <string name="merge_done">Fusion terminée. Le nouveau PDF est enregistré.</string>
+
+    <!-- Extraction -->
+    <string name="split_instructions">Choisis un PDF puis indique les pages à extraire. Un nouveau document est créé, l\'original reste intact.</string>
+    <string name="choose_pdf">Choisir un PDF</string>
+    <string name="page_range_label">Pages à extraire</string>
+    <string name="page_range_example">Exemple : 1-4, 8, 10-12</string>
+    <string name="extract_now">Extraire</string>
+    <string name="split_done">Extraction terminée. Le nouveau PDF est enregistré.</string>
+
+    <!-- Images vers PDF -->
+    <string name="images_instructions">Ajoute des images, mets-les dans l\'ordre voulu, puis crée le PDF.</string>
+    <string name="add_images">Ajouter des images</string>
+    <string name="convert_now">Créer le PDF</string>
+    <string name="images_done">Conversion terminée. Le PDF est enregistré.</string>
+
+    <!-- Statuts -->
+    <string name="working">Traitement en cours…</string>
+    <string name="tool_error">Une erreur est survenue. Aucun fichier original n\'a été modifié.</string>
+
+    <!-- Réglages -->
+    <string name="theme_title">Thème</string>
+    <string name="theme_system">Suivre le système</string>
+    <string name="theme_light">Clair</string>
+    <string name="theme_dark">Sombre</string>
+    <string name="storage_title">Stockage</string>
+    <string name="clear_cache">Vider le cache</string>
+    <string name="clear_history">Effacer l\'historique</string>
+    <string name="clear_history_message">Effacer tout l\'historique et les favoris ? Les fichiers originaux ne sont pas supprimés.</string>
+    <string name="privacy_title">Confidentialité</string>
+    <string name="privacy_body">Tout se passe sur ton appareil. L\'application ne demande aucune permission Internet et n\'envoie aucune donnée.</string>
+    <string name="about_version">PDF Empire — version %1$s</string>
+    <!-- Remplir et signer -->
+    <string name="fill_sign_title">Remplir et signer</string>
+    <string name="tool_fill_sign_description">Remplir les champs d\'un formulaire PDF et apposer signature ou paraphe.</string>
+    <string name="fill_sign_intro">Choisis un PDF : les champs de formulaire deviennent cliquables et tu peux dessiner ta signature.</string>
+    <string name="no_form_fields">Aucun champ de formulaire détecté dans ce PDF. Tu peux quand même le signer.</string>
+    <string name="edit_field">Modifier le champ</string>
+    <string name="choose_option">Choisir une option</string>
+    <string name="add_signature">Ajouter une signature</string>
+    <string name="add_initials">Ajouter un paraphe</string>
+    <string name="signature_pad_hint">Dessine avec ton doigt dans le cadre.</string>
+    <string name="signature_clear">Effacer</string>
+    <string name="tap_to_place">Touche la page à l\'endroit voulu</string>
+    <string name="signature_size">Taille</string>
+    <string name="save_copy">Enregistrer une copie</string>
+    <string name="fill_sign_done">Copie enregistrée. L\'original n\'a pas été modifié.</string>
+</resources>
