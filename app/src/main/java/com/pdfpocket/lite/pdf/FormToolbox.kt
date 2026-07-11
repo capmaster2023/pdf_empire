@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDCheckBox
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDChoice
@@ -40,6 +41,15 @@ data class SignaturePlacement(
     val yTopRatio: Float,
     val widthRatio: Float,
     val isInitials: Boolean
+)
+
+/** Texte libre à incruster, en ratios de la page (0..1), origine haut-gauche. */
+data class FreeTextPlacement(
+    val pageIndex: Int,
+    val xRatio: Float,
+    val yTopRatio: Float,
+    val heightRatio: Float,
+    val text: String
 )
 
 object FormToolbox {
@@ -133,12 +143,15 @@ object FormToolbox {
         checkValues: Map<String, Boolean>,
         choiceValues: Map<String, String>,
         signatures: List<Pair<SignaturePlacement, Bitmap>>,
+        freeTexts: List<FreeTextPlacement> = emptyList(),
         output: Uri
     ) {
         val outputStream = context.contentResolver.openOutputStream(output)
             ?: throw IOException("Impossible d'ouvrir la destination")
         outputStream.use { out ->
-            applyToStream(sourceFile, textValues, checkValues, choiceValues, signatures, out)
+            applyToStream(
+                sourceFile, textValues, checkValues, choiceValues, signatures, freeTexts, out
+            )
         }
     }
 
@@ -152,7 +165,10 @@ object FormToolbox {
         outFile: File
     ) {
         FileOutputStream(outFile).use { out ->
-            applyToStream(sourceFile, textValues, checkValues, choiceValues, emptyList(), out)
+            applyToStream(
+                sourceFile, textValues, checkValues, choiceValues,
+                emptyList(), emptyList(), out
+            )
         }
     }
 
@@ -167,13 +183,18 @@ object FormToolbox {
         checkValues: Map<String, Boolean>,
         choiceValues: Map<String, String>,
         signatures: List<Pair<SignaturePlacement, Bitmap>>,
+        freeTexts: List<FreeTextPlacement>,
         out: OutputStream
     ) {
         PDDocument.load(sourceFile).use { document ->
             val acroForm = document.documentCatalog.acroForm
             if (acroForm != null) {
+                // IMPORTANT : ne PAS activer needAppearances avant setValue().
+                // Avec needAppearances=true, PDFBox saute la génération du flux
+                // d'apparence du champ ; flatten() aplatit alors du vide et la
+                // valeur devient invisible (champ blanc à l'écran).
                 try {
-                    acroForm.setNeedAppearances(true)
+                    acroForm.setNeedAppearances(false)
                 } catch (_: Exception) {
                 }
                 for (field in collectTerminals(acroForm.fields)) {
@@ -189,7 +210,24 @@ object FormToolbox {
                             }
                         }
                     } catch (_: Exception) {
-                        // Un champ récalcitrant ne doit pas bloquer le reste.
+                        // Champ sans police/apparence exploitable : on pose la valeur
+                        // brute sans générer d'apparence, les lecteurs la reconstruiront.
+                        try {
+                            acroForm.setNeedAppearances(true)
+                            when (field) {
+                                is PDTextField -> textValues[name]?.let { field.setValue(it) }
+                                is PDChoice -> choiceValues[name]?.let {
+                                    if (it.isNotEmpty()) field.setValue(it)
+                                }
+                                else -> Unit
+                            }
+                        } catch (_: Exception) {
+                        } finally {
+                            try {
+                                acroForm.setNeedAppearances(false)
+                            } catch (_: Exception) {
+                            }
+                        }
                     }
                 }
                 // Aplatir écrit les valeurs dans le contenu des pages : elles deviennent
@@ -197,8 +235,12 @@ object FormToolbox {
                 try {
                     acroForm.flatten()
                 } catch (_: Exception) {
-                    // En cas d'échec, needAppearances reste posé : la plupart des
-                    // lecteurs afficheront quand même les valeurs.
+                    // En cas d'échec de l'aplatissement, on repasse en needAppearances
+                    // pour que la plupart des lecteurs affichent quand même les valeurs.
+                    try {
+                        acroForm.setNeedAppearances(true)
+                    } catch (_: Exception) {
+                    }
                 }
             }
 
@@ -217,8 +259,57 @@ object FormToolbox {
                 }
             }
 
+            for (freeText in freeTexts) {
+                if (freeText.pageIndex < 0 ||
+                    freeText.pageIndex >= document.numberOfPages
+                ) continue
+                val page = document.getPage(freeText.pageIndex)
+                val box = page.mediaBox
+                val fontSize = (freeText.heightRatio * box.height).coerceAtLeast(4f)
+                val font = PDType1Font.HELVETICA
+                val x = freeText.xRatio * box.width
+                // yTop = haut du texte ; la ligne de base PDF est ~0.8 * taille plus bas.
+                val firstBaseline =
+                    box.height - freeText.yTopRatio * box.height - fontSize * 0.8f
+                try {
+                    PDPageContentStream(
+                        document, page, PDPageContentStream.AppendMode.APPEND, true, true
+                    ).use { stream ->
+                        stream.beginText()
+                        stream.setFont(font, fontSize)
+                        stream.newLineAtOffset(x, firstBaseline)
+                        freeText.text.split("\n").forEachIndexed { lineIndex, line ->
+                            if (lineIndex > 0) {
+                                stream.newLineAtOffset(0f, -fontSize * 1.2f)
+                            }
+                            try {
+                                stream.showText(line)
+                            } catch (_: Exception) {
+                                // Caractère hors encodage Helvetica : on nettoie et on réessaie.
+                                try {
+                                    stream.showText(sanitizeForType1(line))
+                                } catch (_: Exception) {
+                                }
+                            }
+                        }
+                        stream.endText()
+                    }
+                } catch (_: Exception) {
+                    // Un texte récalcitrant ne doit pas bloquer l'enregistrement.
+                }
+            }
+
             document.save(out)
         }
+    }
+
+    /** Remplace les caractères non encodables en WinAnsi (Helvetica) par '?'. */
+    private fun sanitizeForType1(text: String): String {
+        val builder = StringBuilder(text.length)
+        for (character in text) {
+            builder.append(if (character.code in 32..255) character else '?')
+        }
+        return builder.toString()
     }
 
     private fun collectTerminals(fields: List<PDField>): List<PDTerminalField> {

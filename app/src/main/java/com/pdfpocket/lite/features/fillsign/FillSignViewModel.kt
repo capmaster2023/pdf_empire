@@ -14,6 +14,7 @@ import com.pdfpocket.lite.features.tools.ToolStatus
 import com.pdfpocket.lite.pdf.FieldType
 import com.pdfpocket.lite.pdf.FormFieldInfo
 import com.pdfpocket.lite.pdf.FormToolbox
+import com.pdfpocket.lite.pdf.FreeTextPlacement
 import com.pdfpocket.lite.pdf.SignaturePlacement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,7 +33,27 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
     /** Taille d'une page en points PDF. */
     data class PageSize(val width: Float, val height: Float)
 
-    data class PlacedSignature(val placement: SignaturePlacement, val bitmap: Bitmap)
+    data class PlacedSignature(
+        val id: Long,
+        val placement: SignaturePlacement,
+        val bitmap: Bitmap
+    )
+
+    /** Texte libre posé manuellement (ratios de page 0..1, origine haut-gauche). */
+    data class PlacedText(
+        val id: Long,
+        val pageIndex: Int,
+        val xRatio: Float,
+        val yTopRatio: Float,
+        val heightRatio: Float,
+        val text: String
+    )
+
+    /** Ce que le prochain appui sur la page va poser. */
+    sealed interface Placing {
+        data class Stamp(val isInitials: Boolean) : Placing
+        data class FreeText(val text: String) : Placing
+    }
 
     sealed interface UiState {
         data object Empty : UiState
@@ -52,9 +73,10 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
     val signatureBitmap = MutableStateFlow<Bitmap?>(null)
     val initialsBitmap = MutableStateFlow<Bitmap?>(null)
     val placed = MutableStateFlow<List<PlacedSignature>>(emptyList())
+    val placedTexts = MutableStateFlow<List<PlacedText>>(emptyList())
 
-    /** null = navigation normale ; true/false = le prochain appui place le paraphe/la signature. */
-    val placingInitials = MutableStateFlow<Boolean?>(null)
+    /** null = navigation normale ; sinon le prochain appui pose la signature/le paraphe/le texte. */
+    val placing = MutableStateFlow<Placing?>(null)
 
     val pageSizes = MutableStateFlow<List<PageSize>>(emptyList())
     val saveStatus = MutableStateFlow<ToolStatus>(ToolStatus.Idle)
@@ -82,6 +104,8 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
             _state.value = UiState.Loading
             saveStatus.value = ToolStatus.Idle
             placed.value = emptyList()
+            placedTexts.value = emptyList()
+            placing.value = null
             previewActive.value = false
             try {
                 closeEverything()
@@ -220,53 +244,99 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setSignature(bitmap: Bitmap, isInitials: Boolean) {
         if (isInitials) initialsBitmap.value = bitmap else signatureBitmap.value = bitmap
-        placingInitials.value = isInitials
+        placing.value = Placing.Stamp(isInitials)
     }
 
     fun startPlacing(isInitials: Boolean) {
-        placingInitials.value = isInitials
+        placing.value = Placing.Stamp(isInitials)
+    }
+
+    /** Le prochain appui sur la page posera ce texte libre. */
+    fun startPlacingText(text: String) {
+        if (text.isBlank()) return
+        placing.value = Placing.FreeText(text)
     }
 
     fun cancelPlacing() {
-        placingInitials.value = null
+        placing.value = null
     }
 
-    /** Place la signature/paraphe courant à la position touchée (ratios 0..1, origine haut-gauche). */
+    private var nextPlacedId = 0L
+
+    /** Pose l'élément en attente (signature, paraphe ou texte) à la position touchée. */
     fun placeAt(pageIndex: Int, xRatio: Float, yTopRatio: Float) {
-        val isInitials = placingInitials.value ?: return
-        val bitmap = (if (isInitials) initialsBitmap.value else signatureBitmap.value) ?: return
-        val widthRatio = if (isInitials) 0.15f else 0.35f
-        val placement = SignaturePlacement(
-            pageIndex = pageIndex,
-            xRatio = (xRatio - widthRatio / 2f).coerceIn(0f, 1f - widthRatio),
-            yTopRatio = yTopRatio.coerceIn(0f, 0.98f),
-            widthRatio = widthRatio,
-            isInitials = isInitials
-        )
-        placed.value = placed.value + PlacedSignature(placement, bitmap)
-        placingInitials.value = null
+        when (val mode = placing.value) {
+            is Placing.Stamp -> {
+                val isInitials = mode.isInitials
+                val bitmap =
+                    (if (isInitials) initialsBitmap.value else signatureBitmap.value) ?: return
+                val widthRatio = if (isInitials) 0.15f else 0.35f
+                val placement = SignaturePlacement(
+                    pageIndex = pageIndex,
+                    xRatio = (xRatio - widthRatio / 2f).coerceIn(0f, 1f - widthRatio),
+                    yTopRatio = yTopRatio.coerceIn(0f, 0.98f),
+                    widthRatio = widthRatio,
+                    isInitials = isInitials
+                )
+                placed.value = placed.value + PlacedSignature(nextPlacedId++, placement, bitmap)
+            }
+
+            is Placing.FreeText -> {
+                placedTexts.value = placedTexts.value + PlacedText(
+                    id = nextPlacedId++,
+                    pageIndex = pageIndex,
+                    xRatio = xRatio.coerceIn(0f, 0.95f),
+                    yTopRatio = yTopRatio.coerceIn(0f, 0.97f),
+                    heightRatio = 0.022f,
+                    text = mode.text
+                )
+            }
+
+            null -> return
+        }
+        placing.value = null
     }
 
-    fun resizeLast(widthRatio: Float) {
-        val list = placed.value.toMutableList()
-        if (list.isEmpty()) return
-        val last = list.removeAt(list.size - 1)
-        list.add(
-            last.copy(
-                placement = last.placement.copy(
-                    widthRatio = widthRatio.coerceIn(0.08f, 0.9f)
+    /**
+     * Déplace (dx/dy en ratios de page) et redimensionne (zoom multiplicatif)
+     * une signature placée. Utilisé par le geste tactile glisser/pincer.
+     */
+    fun transformPlaced(id: Long, dxRatio: Float, dyRatio: Float, zoom: Float) {
+        placed.value = placed.value.map { item ->
+            if (item.id != id) return@map item
+            val current = item.placement
+            val newWidth = (current.widthRatio * zoom).coerceIn(0.08f, 0.9f)
+            // On garde le centre horizontal fixe pendant le pincement.
+            val recenter = (current.widthRatio - newWidth) / 2f
+            item.copy(
+                placement = current.copy(
+                    xRatio = (current.xRatio + dxRatio + recenter)
+                        .coerceIn(0f, 1f - newWidth),
+                    yTopRatio = (current.yTopRatio + dyRatio).coerceIn(0f, 0.98f),
+                    widthRatio = newWidth
                 )
             )
-        )
-        placed.value = list
+        }
     }
 
-    fun removeLastPlaced() {
-        val list = placed.value.toMutableList()
-        if (list.isNotEmpty()) {
-            list.removeAt(list.size - 1)
-            placed.value = list
+    /** Même geste pour les textes libres : glisser déplace, pincer change la taille. */
+    fun transformText(id: Long, dxRatio: Float, dyRatio: Float, zoom: Float) {
+        placedTexts.value = placedTexts.value.map { item ->
+            if (item.id != id) return@map item
+            item.copy(
+                xRatio = (item.xRatio + dxRatio).coerceIn(0f, 0.98f),
+                yTopRatio = (item.yTopRatio + dyRatio).coerceIn(0f, 0.98f),
+                heightRatio = (item.heightRatio * zoom).coerceIn(0.008f, 0.08f)
+            )
         }
+    }
+
+    fun removeSignature(id: Long) {
+        placed.value = placed.value.filterNot { it.id == id }
+    }
+
+    fun removeText(id: Long) {
+        placedTexts.value = placedTexts.value.filterNot { it.id == id }
     }
 
     fun outputName(): String = "rempli_$documentName"
@@ -283,6 +353,15 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
                     checkValues = checkValues.value,
                     choiceValues = choiceValues.value,
                     signatures = placed.value.map { it.placement to it.bitmap },
+                    freeTexts = placedTexts.value.map {
+                        FreeTextPlacement(
+                            pageIndex = it.pageIndex,
+                            xRatio = it.xRatio,
+                            yTopRatio = it.yTopRatio,
+                            heightRatio = it.heightRatio,
+                            text = it.text
+                        )
+                    },
                     output = output
                 )
                 ToolStatus.Done(output, outputName())

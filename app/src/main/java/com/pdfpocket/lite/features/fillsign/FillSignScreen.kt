@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -25,10 +26,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Gesture
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomAppBar
@@ -41,7 +42,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -85,7 +85,8 @@ fun FillSignScreen(
     val choiceValues by viewModel.choiceValues.collectAsStateWithLifecycle()
     val pageSizes by viewModel.pageSizes.collectAsStateWithLifecycle()
     val placed by viewModel.placed.collectAsStateWithLifecycle()
-    val placingInitials by viewModel.placingInitials.collectAsStateWithLifecycle()
+    val placedTexts by viewModel.placedTexts.collectAsStateWithLifecycle()
+    val placing by viewModel.placing.collectAsStateWithLifecycle()
     val signatureBitmap by viewModel.signatureBitmap.collectAsStateWithLifecycle()
     val initialsBitmap by viewModel.initialsBitmap.collectAsStateWithLifecycle()
     val saveStatus by viewModel.saveStatus.collectAsStateWithLifecycle()
@@ -95,6 +96,7 @@ fun FillSignScreen(
 
     var editingField by remember { mutableStateOf<FormFieldInfo?>(null) }
     var padTarget by remember { mutableStateOf<Boolean?>(null) } // false=signature, true=paraphe
+    var showTextDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialUri) {
         if (initialUri != null && state is FillSignViewModel.UiState.Empty) {
@@ -149,7 +151,7 @@ fun FillSignScreen(
             if (currentState is FillSignViewModel.UiState.Ready) {
                 BottomAppBar {
                     when {
-                        placingInitials != null -> {
+                        placing != null -> {
                             Text(
                                 text = stringResource(R.string.tap_to_place),
                                 modifier = Modifier
@@ -185,6 +187,16 @@ fun FillSignScreen(
                                 Icon(Icons.Default.Gesture, contentDescription = null)
                                 Text(
                                     text = stringResource(R.string.add_initials),
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+                            TextButton(
+                                onClick = { showTextDialog = true },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.TextFields, contentDescription = null)
+                                Text(
+                                    text = stringResource(R.string.add_free_text),
                                     modifier = Modifier.padding(start = 4.dp)
                                 )
                             }
@@ -295,32 +307,15 @@ fun FillSignScreen(
                             is ToolStatus.Idle -> Unit
                         }
 
-                        if (placed.isNotEmpty()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.signature_size),
-                                    style = MaterialTheme.typography.bodySmall
+                        if (placed.isNotEmpty() || placedTexts.isNotEmpty()) {
+                            Text(
+                                text = stringResource(R.string.signature_drag_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(
+                                    horizontal = 16.dp, vertical = 4.dp
                                 )
-                                Slider(
-                                    value = placed.last().placement.widthRatio,
-                                    onValueChange = { viewModel.resizeLast(it) },
-                                    valueRange = 0.08f..0.9f,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(horizontal = 8.dp)
-                                )
-                                IconButton(onClick = { viewModel.removeLastPlaced() }) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = stringResource(R.string.remove)
-                                    )
-                                }
-                            }
+                            )
                         }
 
                         LazyColumn(
@@ -340,7 +335,8 @@ fun FillSignScreen(
                                     checkValues = checkValues,
                                     choiceValues = choiceValues,
                                     placed = placed.filter { it.placement.pageIndex == index },
-                                    placing = placingInitials != null,
+                                    placedTexts = placedTexts.filter { it.pageIndex == index },
+                                    placing = placing != null,
                                     onTapField = { field ->
                                         when (field.type) {
                                             FieldType.CHECKBOX -> viewModel.toggleCheck(field.name)
@@ -433,6 +429,38 @@ fun FillSignScreen(
             }
         )
     }
+
+    // Saisie d'un texte libre à poser sur la page
+    if (showTextDialog) {
+        var freeText by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showTextDialog = false },
+            title = { Text(stringResource(R.string.add_free_text)) },
+            text = {
+                OutlinedTextField(
+                    value = freeText,
+                    onValueChange = { freeText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 1,
+                    maxLines = 4
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.startPlacingText(freeText)
+                        showTextDialog = false
+                    },
+                    enabled = freeText.isNotBlank()
+                ) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTextDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -447,6 +475,7 @@ private fun FillSignPage(
     checkValues: Map<String, Boolean>,
     choiceValues: Map<String, String>,
     placed: List<FillSignViewModel.PlacedSignature>,
+    placedTexts: List<FillSignViewModel.PlacedText>,
     placing: Boolean,
     onTapField: (FormFieldInfo) -> Unit,
     onPlace: (Float, Float) -> Unit
@@ -539,7 +568,8 @@ private fun FillSignPage(
             }
         }
 
-        // Signatures placées
+        // Signatures placées : glisser pour déplacer, pincer pour redimensionner,
+        // appui long pour supprimer.
         placed.forEach { item ->
             val signatureWidth = item.placement.widthRatio * widthPx
             val signatureHeight =
@@ -558,6 +588,54 @@ private fun FillSignPage(
                         width = with(density) { signatureWidth.toDp() },
                         height = with(density) { signatureHeight.toDp() }
                     )
+                    .pointerInput(item.id) {
+                        detectTapGestures(
+                            onLongPress = { viewModel.removeSignature(item.id) }
+                        )
+                    }
+                    .pointerInput(item.id) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            viewModel.transformPlaced(
+                                id = item.id,
+                                dxRatio = pan.x / widthPx.coerceAtLeast(1f),
+                                dyRatio = pan.y / heightPx.coerceAtLeast(1f),
+                                zoom = zoom
+                            )
+                        }
+                    }
+            )
+        }
+
+        // Textes libres : mêmes gestes que les signatures.
+        placedTexts.forEach { item ->
+            val fontSizePx = item.heightRatio * heightPx
+            Text(
+                text = item.text,
+                color = Color.Black,
+                fontSize = with(density) { fontSizePx.toSp() },
+                lineHeight = with(density) { (fontSizePx * 1.2f).toSp() },
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (item.xRatio * widthPx).roundToInt(),
+                            (item.yTopRatio * heightPx).roundToInt()
+                        )
+                    }
+                    .pointerInput(item.id) {
+                        detectTapGestures(
+                            onLongPress = { viewModel.removeText(item.id) }
+                        )
+                    }
+                    .pointerInput(item.id) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            viewModel.transformText(
+                                id = item.id,
+                                dxRatio = pan.x / widthPx.coerceAtLeast(1f),
+                                dyRatio = pan.y / heightPx.coerceAtLeast(1f),
+                                zoom = zoom
+                            )
+                        }
+                    }
             )
         }
     }
