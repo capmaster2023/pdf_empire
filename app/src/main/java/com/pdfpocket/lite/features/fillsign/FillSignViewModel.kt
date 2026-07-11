@@ -16,6 +16,8 @@ import com.pdfpocket.lite.pdf.FormFieldInfo
 import com.pdfpocket.lite.pdf.FormToolbox
 import com.pdfpocket.lite.pdf.SignaturePlacement
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -57,7 +59,15 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
     val pageSizes = MutableStateFlow<List<PageSize>>(emptyList())
     val saveStatus = MutableStateFlow<ToolStatus>(ToolStatus.Idle)
 
+    /** Aperçu en temps réel : version incrémentée à chaque nouveau rendu des valeurs. */
+    val previewVersion = MutableStateFlow(0)
+
+    /** true quand les pages affichées incluent déjà les valeurs saisies. */
+    val previewActive = MutableStateFlow(false)
+
     private var sourceFile: File? = null
+    private var previewFile: File? = null
+    private var previewJob: Job? = null
     private var renderer: PdfRenderer? = null
     private val rendererMutex = Mutex()
     private var documentName: String = "document.pdf"
@@ -71,17 +81,17 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
             _state.value = UiState.Loading
             saveStatus.value = ToolStatus.Idle
             placed.value = emptyList()
+            previewActive.value = false
             try {
-                closeRenderer()
+                closeEverything()
                 val document = container.documents.registerDocument(uri)
                 documentName = document.name
                 val file = FileUtils.copyToCache(container.app, uri, "fillsign")
                     ?: throw IOException("Copie impossible")
                 sourceFile = file
 
-                val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                val pdfRenderer = PdfRenderer(pfd)
-                renderer = pdfRenderer
+                rendererMutex.withLock { openRendererOn(file) }
+                val pdfRenderer = renderer ?: throw IOException("Rendu impossible")
 
                 val sizes = mutableListOf<PageSize>()
                 for (index in 0 until pdfRenderer.pageCount) {
@@ -108,6 +118,7 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
 
                 container.documents.updatePageCount(uri.toString(), pdfRenderer.pageCount)
                 _state.value = UiState.Ready(document.name, pdfRenderer.pageCount)
+                previewVersion.value = previewVersion.value + 1
             } catch (_: Exception) {
                 _state.value = UiState.Error
             }
@@ -147,15 +158,63 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setTextValue(name: String, value: String) {
         textValues.value = textValues.value.toMutableMap().apply { put(name, value) }
+        schedulePreview()
     }
 
     fun toggleCheck(name: String) {
         val current = checkValues.value[name] ?: false
         checkValues.value = checkValues.value.toMutableMap().apply { put(name, !current) }
+        schedulePreview()
     }
 
     fun setChoice(name: String, value: String) {
         choiceValues.value = choiceValues.value.toMutableMap().apply { put(name, value) }
+        schedulePreview()
+    }
+
+    /** Regénère l'aperçu en arrière-plan, avec anti-rebond pour les saisies rapprochées. */
+    private fun schedulePreview() {
+        previewJob?.cancel()
+        previewJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(350)
+            buildPreview()
+        }
+    }
+
+    private suspend fun buildPreview() {
+        val source = sourceFile ?: return
+        val next = File(
+            container.app.cacheDir,
+            "fillsign_preview_" + System.currentTimeMillis() + ".pdf"
+        )
+        try {
+            FormToolbox.buildPreviewFile(
+                sourceFile = source,
+                textValues = textValues.value,
+                checkValues = checkValues.value,
+                choiceValues = choiceValues.value,
+                outFile = next
+            )
+            rendererMutex.withLock {
+                closeRendererLocked()
+                openRendererOn(next)
+                pageCache.evictAll()
+            }
+            previewFile?.delete()
+            previewFile = next
+            previewActive.value = true
+            previewVersion.value = previewVersion.value + 1
+        } catch (_: Exception) {
+            next.delete()
+            // En cas d'échec, on restaure un rendu fonctionnel.
+            rendererMutex.withLock {
+                if (renderer == null) {
+                    openRendererOn(previewFile ?: source)
+                }
+            }
+        } catch (_: OutOfMemoryError) {
+            next.delete()
+        }
     }
 
     fun setSignature(bitmap: Bitmap, isInitials: Boolean) {
@@ -241,19 +300,41 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    private fun closeRenderer() {
+    /** À appeler uniquement sous rendererMutex. */
+    private fun openRendererOn(file: File) {
+        try {
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(pfd)
+        } catch (_: Exception) {
+            renderer = null
+        }
+    }
+
+    /** À appeler uniquement sous rendererMutex. */
+    private fun closeRendererLocked() {
+        try {
+            renderer?.close()
+        } catch (_: Exception) {
+        }
+        renderer = null
+    }
+
+    private fun closeEverything() {
+        previewJob?.cancel()
         try {
             renderer?.close()
         } catch (_: Exception) {
         }
         renderer = null
         pageCache.evictAll()
+        previewFile?.delete()
+        previewFile = null
         sourceFile?.delete()
         sourceFile = null
     }
 
     override fun onCleared() {
         super.onCleared()
-        closeRenderer()
+        closeEverything()
     }
 }

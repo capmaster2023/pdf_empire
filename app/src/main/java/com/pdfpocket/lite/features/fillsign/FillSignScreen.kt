@@ -89,6 +89,9 @@ fun FillSignScreen(
     val signatureBitmap by viewModel.signatureBitmap.collectAsStateWithLifecycle()
     val initialsBitmap by viewModel.initialsBitmap.collectAsStateWithLifecycle()
     val saveStatus by viewModel.saveStatus.collectAsStateWithLifecycle()
+    val previewVersion by viewModel.previewVersion.collectAsStateWithLifecycle()
+    val previewActive by viewModel.previewActive.collectAsStateWithLifecycle()
+    val previewWorking by viewModel.previewWorking.collectAsStateWithLifecycle()
 
     var editingField by remember { mutableStateOf<FormFieldInfo?>(null) }
     var padTarget by remember { mutableStateOf<Boolean?>(null) } // false=signature, true=paraphe
@@ -234,6 +237,11 @@ fun FillSignScreen(
 
                 is FillSignViewModel.UiState.Ready -> {
                     Column(modifier = Modifier.fillMaxSize()) {
+                        if (previewWorking) {
+                            androidx.compose.material3.LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                         if (fields.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.no_form_fields),
@@ -324,6 +332,8 @@ fun FillSignScreen(
                                 FillSignPage(
                                     index = index,
                                     viewModel = viewModel,
+                                    renderVersion = previewVersion,
+                                    previewActive = previewActive,
                                     pageSize = pageSizes.getOrNull(index),
                                     fields = fields.filter { it.pageIndex == index },
                                     textValues = textValues,
@@ -429,6 +439,8 @@ fun FillSignScreen(
 private fun FillSignPage(
     index: Int,
     viewModel: FillSignViewModel,
+    renderVersion: Int,
+    previewActive: Boolean,
     pageSize: FillSignViewModel.PageSize?,
     fields: List<FormFieldInfo>,
     textValues: Map<String, String>,
@@ -447,7 +459,7 @@ private fun FillSignPage(
             .coerceIn(720, 2160)
     }
 
-    val bitmap by produceState<Bitmap?>(initialValue = null, index, targetWidth) {
+    val bitmap by produceState<Bitmap?>(initialValue = null, index, targetWidth, renderVersion) {
         value = viewModel.renderPage(index, targetWidth)
     }
 
@@ -506,12 +518,14 @@ private fun FillSignPage(
                             width = with(density) { fieldWidth.toDp() },
                             height = with(density) { fieldHeight.toDp() }
                         )
-                        .background(Color(0x332F6FDE))
+                        .background(
+                            if (previewActive) Color(0x142F6FDE) else Color(0x332F6FDE)
+                        )
                         .border(1.dp, Color(0xFF2F6FDE))
                         .clickable { onTapField(field) },
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    if (label.isNotEmpty()) {
+                    if (!previewActive && label.isNotEmpty()) {
                         Text(
                             text = label,
                             style = MaterialTheme.typography.bodySmall,

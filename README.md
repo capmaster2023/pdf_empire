@@ -12,7 +12,7 @@ Lecteur et boîte à outils PDF pour Android, 100 % hors ligne, développé et c
 - **Extraire des pages** : plage validée (ex. `1-4, 8, 10-12`), nouveau fichier créé, original intact
 - **Images vers PDF** : plusieurs images, ordre modifiable
 - **Partage** de tout document ou résultat (FileProvider)
-- **Remplir et signer** (à la Acrobat) : détection des champs de formulaire (texte, cases à cocher, listes déroulantes) rendus cliquables sur la page, saisie des valeurs, **signature et paraphe dessinés au doigt** puis placés où tu veux (taille ajustable) et incrustés dans le PDF — le résultat est enregistré en copie, l'original jamais touché
+- **Remplir et signer** (à la Acrobat) : détection des champs de formulaire (texte, cases à cocher, listes déroulantes) rendus cliquables sur la page, saisie des valeurs avec **aperçu en temps réel** (le PDF se re-rend avec tes valeurs incrustées avant même d'enregistrer), **signature et paraphe dessinés au doigt** puis placés où tu veux (taille ajustable) et incrustés dans le PDF — **aperçu en temps réel** : chaque valeur saisie est incrustée et re-rendue sur la page avant l'enregistrement — le résultat est enregistré en copie (formulaire aplati, visible dans tous les lecteurs), l'original jamais touché
 - **Réglages** : thème système/clair/sombre, vider le cache, effacer l'historique
 - **Messages d'erreur clairs** : PDF protégé par mot de passe, fichier corrompu
 - **Confidentialité** : aucune permission Internet, aucune donnée envoyée

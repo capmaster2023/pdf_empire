@@ -127,7 +127,7 @@ fun SettingsScreen() {
         HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
 
         Text(
-            text = stringResource(R.string.about_version, "0.2.0"),
+            text = stringResource(R.string.about_version, "0.2.1"),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

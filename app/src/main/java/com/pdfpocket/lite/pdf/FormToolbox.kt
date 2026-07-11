@@ -13,7 +13,9 @@ import com.tom_roush.pdfbox.pdmodel.interactive.form.PDNonTerminalField
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDTerminalField
 import com.tom_roush.pdfbox.pdmodel.interactive.form.PDTextField
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
+import java.io.OutputStream
 
 enum class FieldType { TEXT, CHECKBOX, CHOICE }
 
@@ -48,14 +50,7 @@ object FormToolbox {
         try {
             PDDocument.load(file).use { document ->
                 val acroForm = document.documentCatalog.acroForm ?: return emptyList()
-                val terminals = mutableListOf<PDTerminalField>()
-                fun collect(field: PDField) {
-                    when (field) {
-                        is PDNonTerminalField -> field.children.forEach { collect(it) }
-                        is PDTerminalField -> terminals.add(field)
-                    }
-                }
-                acroForm.fields.forEach { collect(it) }
+                val terminals = collectTerminals(acroForm.fields)
 
                 for (field in terminals) {
                     val type = when (field) {
@@ -129,10 +124,7 @@ object FormToolbox {
         return floatArrayOf(x, y, width, height)
     }
 
-    /**
-     * Applique les valeurs de champs et incruste les signatures, puis enregistre
-     * dans [output]. Le fichier source n'est jamais modifié.
-     */
+    /** Enregistre le résultat final vers un URI SAF. Le fichier source n'est jamais modifié. */
     @Throws(IOException::class)
     fun applyAndSave(
         context: Context,
@@ -143,25 +135,48 @@ object FormToolbox {
         signatures: List<Pair<SignaturePlacement, Bitmap>>,
         output: Uri
     ) {
+        val outputStream = context.contentResolver.openOutputStream(output)
+            ?: throw IOException("Impossible d'ouvrir la destination")
+        outputStream.use { out ->
+            applyToStream(sourceFile, textValues, checkValues, choiceValues, signatures, out)
+        }
+    }
+
+    /** Génère un fichier d'aperçu (valeurs aplaties, sans signatures) pour le rendu en direct. */
+    @Throws(IOException::class)
+    fun buildPreviewFile(
+        sourceFile: File,
+        textValues: Map<String, String>,
+        checkValues: Map<String, Boolean>,
+        choiceValues: Map<String, String>,
+        outFile: File
+    ) {
+        FileOutputStream(outFile).use { out ->
+            applyToStream(sourceFile, textValues, checkValues, choiceValues, emptyList(), out)
+        }
+    }
+
+    /**
+     * Cœur commun : remplit les champs, aplatit le formulaire (pour que le rendu système
+     * affiche les valeurs), incruste les signatures, écrit dans [out].
+     */
+    @Throws(IOException::class)
+    private fun applyToStream(
+        sourceFile: File,
+        textValues: Map<String, String>,
+        checkValues: Map<String, Boolean>,
+        choiceValues: Map<String, String>,
+        signatures: List<Pair<SignaturePlacement, Bitmap>>,
+        out: OutputStream
+    ) {
         PDDocument.load(sourceFile).use { document ->
             val acroForm = document.documentCatalog.acroForm
-            if (acroForm != null &&
-                (textValues.isNotEmpty() || checkValues.isNotEmpty() || choiceValues.isNotEmpty())
-            ) {
+            if (acroForm != null) {
                 try {
                     acroForm.setNeedAppearances(true)
                 } catch (_: Exception) {
                 }
-                val terminals = mutableListOf<PDTerminalField>()
-                fun collect(field: PDField) {
-                    when (field) {
-                        is PDNonTerminalField -> field.children.forEach { collect(it) }
-                        is PDTerminalField -> terminals.add(field)
-                    }
-                }
-                acroForm.fields.forEach { collect(it) }
-
-                for (field in terminals) {
+                for (field in collectTerminals(acroForm.fields)) {
                     val name = field.fullyQualifiedName ?: continue
                     try {
                         when (field) {
@@ -169,11 +184,21 @@ object FormToolbox {
                             is PDCheckBox -> checkValues[name]?.let { checked ->
                                 if (checked) field.check() else field.unCheck()
                             }
-                            is PDChoice -> choiceValues[name]?.let { field.setValue(it) }
+                            is PDChoice -> choiceValues[name]?.let {
+                                if (it.isNotEmpty()) field.setValue(it)
+                            }
                         }
                     } catch (_: Exception) {
                         // Un champ récalcitrant ne doit pas bloquer le reste.
                     }
+                }
+                // Aplatir écrit les valeurs dans le contenu des pages : elles deviennent
+                // visibles dans tous les lecteurs, y compris le rendu système Android.
+                try {
+                    acroForm.flatten()
+                } catch (_: Exception) {
+                    // En cas d'échec, needAppearances reste posé : la plupart des
+                    // lecteurs afficheront quand même les valeurs.
                 }
             }
 
@@ -192,9 +217,19 @@ object FormToolbox {
                 }
             }
 
-            val outputStream = context.contentResolver.openOutputStream(output)
-                ?: throw IOException("Impossible d'ouvrir la destination")
-            outputStream.use { document.save(it) }
+            document.save(out)
         }
+    }
+
+    private fun collectTerminals(fields: List<PDField>): List<PDTerminalField> {
+        val terminals = mutableListOf<PDTerminalField>()
+        fun collect(field: PDField) {
+            when (field) {
+                is PDNonTerminalField -> field.children.forEach { collect(it) }
+                is PDTerminalField -> terminals.add(field)
+            }
+        }
+        fields.forEach { collect(it) }
+        return terminals
     }
 }
