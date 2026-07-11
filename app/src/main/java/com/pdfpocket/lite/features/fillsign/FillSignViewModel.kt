@@ -64,6 +64,7 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
 
     /** true quand les pages affichées incluent déjà les valeurs saisies. */
     val previewActive = MutableStateFlow(false)
+    val previewWorking = MutableStateFlow(false)
 
     private var sourceFile: File? = null
     private var previewFile: File? = null
