@@ -28,9 +28,12 @@ import com.pdfpocket.lite.R
 import com.pdfpocket.lite.features.files.FilesScreen
 import com.pdfpocket.lite.features.fillsign.FillSignScreen
 import com.pdfpocket.lite.features.home.HomeScreen
+import com.pdfpocket.lite.features.pages.PagesScreen
 import com.pdfpocket.lite.features.settings.SettingsScreen
+import com.pdfpocket.lite.features.tools.ConvertScreen
 import com.pdfpocket.lite.features.tools.ImagesToPdfScreen
 import com.pdfpocket.lite.features.tools.MergeScreen
+import com.pdfpocket.lite.features.tools.WatermarkScreen
 import com.pdfpocket.lite.features.tools.SplitScreen
 import com.pdfpocket.lite.features.tools.ToolsScreen
 import com.pdfpocket.lite.features.viewer.ViewerScreen
@@ -115,6 +118,15 @@ fun AppRoot(
             }
             composable(Routes.SPLIT) {
                 SplitScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.PAGES) {
+                PagesScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.CONVERT) {
+                ConvertScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.WATERMARK) {
+                WatermarkScreen(onBack = { navController.popBackStack() })
             }
             composable(Routes.IMAGES_TO_PDF) {
                 ImagesToPdfScreen(onBack = { navController.popBackStack() })

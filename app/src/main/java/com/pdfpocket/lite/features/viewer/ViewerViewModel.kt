@@ -10,6 +10,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.pdfpocket.lite.AppContainer
 import com.pdfpocket.lite.core.FileUtils
+import com.pdfpocket.lite.pdf.LinkToolbox
+import com.pdfpocket.lite.pdf.SearchToolbox
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +45,20 @@ class ViewerViewModel(
 
     private val _isFavorite = MutableStateFlow(false)
     val isFavorite: StateFlow<Boolean> = _isFavorite
+
+    /** Zones de liens cliquables par page (extraites une fois le document ouvert). */
+    private val _links = MutableStateFlow<Map<Int, List<LinkToolbox.LinkArea>>>(emptyMap())
+    val links: StateFlow<Map<Int, List<LinkToolbox.LinkArea>>> = _links
+
+    data class SearchState(
+        val query: String = "",
+        val matches: List<SearchToolbox.Match> = emptyList(),
+        val currentIndex: Int = 0,
+        val searching: Boolean = false
+    )
+
+    private val _search = MutableStateFlow(SearchState())
+    val search: StateFlow<SearchState> = _search
 
     private var renderer: PdfRenderer? = null
     private var cachedFile: File? = null
@@ -78,6 +94,9 @@ class ViewerViewModel(
                     name = document.name,
                     lastPage = document.lastPage.coerceIn(0, pdfRenderer.pageCount - 1)
                 )
+
+                // Extraction des liens en arrière-plan (rendus cliquables en surimpression).
+                _links.value = LinkToolbox.extractLinks(file)
             } catch (security: SecurityException) {
                 _state.value = UiState.Error(ErrorType.PROTECTED)
             } catch (error: Exception) {
@@ -117,6 +136,50 @@ class ViewerViewModel(
                 }
             }
         }
+
+    /** Lance une recherche dans le document (surlignage + navigation). */
+    fun startSearch(query: String) {
+        val file = cachedFile ?: return
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            _search.value = SearchState()
+            return
+        }
+        _search.value = _search.value.copy(query = query, searching = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            val matches = SearchToolbox.search(file, trimmed)
+            _search.value = SearchState(
+                query = query,
+                matches = matches,
+                currentIndex = 0,
+                searching = false
+            )
+        }
+    }
+
+    fun nextMatch() {
+        val current = _search.value
+        if (current.matches.isEmpty()) return
+        _search.value = current.copy(
+            currentIndex = (current.currentIndex + 1) % current.matches.size
+        )
+    }
+
+    fun previousMatch() {
+        val current = _search.value
+        if (current.matches.isEmpty()) return
+        _search.value = current.copy(
+            currentIndex = (current.currentIndex - 1 + current.matches.size) %
+                current.matches.size
+        )
+    }
+
+    fun clearSearch() {
+        _search.value = SearchState()
+    }
+
+    /** Fichier local du document (pour l'impression depuis l'écran). */
+    fun documentFile(): java.io.File? = cachedFile
 
     fun onPageVisible(page: Int) {
         viewModelScope.launch {

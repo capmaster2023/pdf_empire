@@ -14,6 +14,9 @@ import androidx.compose.material.icons.filled.CallMerge
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.AutoAwesomeMotion
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -62,6 +65,30 @@ fun ToolsScreen(onOpenTool: (String) -> Unit) {
                 title = stringResource(R.string.action_extract_pages),
                 description = stringResource(R.string.tool_split_description),
                 onClick = { onOpenTool(Routes.SPLIT) }
+            )
+        }
+        item {
+            ToolCard(
+                icon = Icons.Default.AutoAwesomeMotion,
+                title = stringResource(R.string.pages_title),
+                description = stringResource(R.string.tool_pages_description),
+                onClick = { onOpenTool(Routes.PAGES) }
+            )
+        }
+        item {
+            ToolCard(
+                icon = Icons.Default.SwapHoriz,
+                title = stringResource(R.string.convert_title),
+                description = stringResource(R.string.tool_convert_description),
+                onClick = { onOpenTool(Routes.CONVERT) }
+            )
+        }
+        item {
+            ToolCard(
+                icon = Icons.Default.WaterDrop,
+                title = stringResource(R.string.watermark_title),
+                description = stringResource(R.string.tool_watermark_description),
+                onClick = { onOpenTool(Routes.WATERMARK) }
             )
         }
         item {

@@ -1,7 +1,10 @@
 package com.pdfpocket.lite.features.viewer
 
+import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -10,7 +13,10 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,7 +26,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Draw
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -47,17 +59,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pdfpocket.lite.R
+import com.pdfpocket.lite.core.PrintUtils
 import com.pdfpocket.lite.core.appViewModel
+import com.pdfpocket.lite.pdf.LinkToolbox
+import com.pdfpocket.lite.pdf.SearchToolbox
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
@@ -72,10 +91,21 @@ fun ViewerScreen(
     val viewModel = appViewModel { ViewerViewModel(it, uriString) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+    val search by viewModel.search.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     var showGoToPage by remember { mutableStateOf(false) }
+    var searchMode by remember { mutableStateOf(false) }
+    var searchInput by remember { mutableStateOf("") }
+
+    // Défilement automatique vers l'occurrence courante.
+    LaunchedEffect(search.currentIndex, search.matches) {
+        val match = search.matches.getOrNull(search.currentIndex) ?: return@LaunchedEffect
+        listState.animateScrollToItem(match.pageIndex)
+    }
 
     val currentState = state
 
@@ -100,6 +130,28 @@ fun ViewerScreen(
                 },
                 actions = {
                     if (currentState is ViewerViewModel.UiState.Ready) {
+                        IconButton(onClick = {
+                            searchMode = !searchMode
+                            if (!searchMode) {
+                                searchInput = ""
+                                viewModel.clearSearch()
+                            }
+                        }) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = stringResource(R.string.viewer_search)
+                            )
+                        }
+                        IconButton(onClick = {
+                            viewModel.documentFile()?.let { file ->
+                                PrintUtils.printPdf(context, file, currentState.name)
+                            }
+                        }) {
+                            Icon(
+                                Icons.Default.Print,
+                                contentDescription = stringResource(R.string.viewer_print)
+                            )
+                        }
                         IconButton(onClick = onFillSign) {
                             Icon(
                                 Icons.Default.Draw,
@@ -167,12 +219,37 @@ fun ViewerScreen(
                 }
 
                 is ViewerViewModel.UiState.Ready -> {
-                    PdfPages(
-                        viewModel = viewModel,
-                        pageCount = currentState.pageCount,
-                        initialPage = currentState.lastPage,
-                        listState = listState
-                    )
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if (searchMode) {
+                            SearchBar(
+                                input = searchInput,
+                                onInputChange = { searchInput = it },
+                                search = search,
+                                onSearch = { viewModel.startSearch(searchInput) },
+                                onPrevious = { viewModel.previousMatch() },
+                                onNext = { viewModel.nextMatch() },
+                                onCopy = {
+                                    search.matches.getOrNull(search.currentIndex)?.let {
+                                        clipboard.setText(AnnotatedString(it.snippet))
+                                    }
+                                },
+                                onClose = {
+                                    searchMode = false
+                                    searchInput = ""
+                                    viewModel.clearSearch()
+                                }
+                            )
+                        }
+                        PdfPages(
+                            viewModel = viewModel,
+                            pageCount = currentState.pageCount,
+                            initialPage = currentState.lastPage,
+                            listState = listState,
+                            onGoToPage = { target ->
+                                scope.launch { listState.animateScrollToItem(target) }
+                            }
+                        )
+                    }
 
                     LaunchedEffect(Unit) {
                         snapshotFlow { listState.firstVisibleItemIndex }
@@ -226,8 +303,11 @@ private fun PdfPages(
     viewModel: ViewerViewModel,
     pageCount: Int,
     initialPage: Int,
-    listState: androidx.compose.foundation.lazy.LazyListState
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onGoToPage: (Int) -> Unit
 ) {
+    val links by viewModel.links.collectAsStateWithLifecycle()
+    val search by viewModel.search.collectAsStateWithLifecycle()
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val targetWidth = remember(configuration, density) {
@@ -297,10 +377,16 @@ private fun PdfPages(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(pageCount) { index ->
+                val currentMatch = search.matches.getOrNull(search.currentIndex)
                 PdfPageItem(
                     index = index,
                     targetWidth = targetWidth,
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    links = links[index].orEmpty(),
+                    highlights = search.matches.filter { it.pageIndex == index },
+                    currentMatch = if (currentMatch?.pageIndex == index) currentMatch
+                    else null,
+                    onGoToPage = onGoToPage
                 )
             }
         }
@@ -311,21 +397,86 @@ private fun PdfPages(
 private fun PdfPageItem(
     index: Int,
     targetWidth: Int,
-    viewModel: ViewerViewModel
+    viewModel: ViewerViewModel,
+    links: List<LinkToolbox.LinkArea>,
+    highlights: List<SearchToolbox.Match>,
+    currentMatch: SearchToolbox.Match?,
+    onGoToPage: (Int) -> Unit
 ) {
     val bitmap by produceState<Bitmap?>(initialValue = null, index, targetWidth) {
         value = viewModel.renderPage(index, targetWidth)
     }
     val rendered = bitmap
     if (rendered != null) {
-        Image(
-            bitmap = rendered.asImageBitmap(),
-            contentDescription = stringResource(R.string.page_number, index + 1),
+        val context = LocalContext.current
+        val density = LocalDensity.current
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(rendered.width.toFloat() / rendered.height.toFloat())
                 .background(MaterialTheme.colorScheme.surface)
-        )
+        ) {
+            val widthPx = with(density) { maxWidth.toPx() }
+            val heightPx = with(density) { maxHeight.toPx() }
+            Image(
+                bitmap = rendered.asImageBitmap(),
+                contentDescription = stringResource(R.string.page_number, index + 1),
+                modifier = Modifier.fillMaxSize()
+            )
+            // Surlignage des occurrences de recherche.
+            for (match in highlights) {
+                val isCurrent = match === currentMatch
+                for (rect in match.rects) {
+                    Box(
+                        modifier = Modifier
+                            .offset {
+                                androidx.compose.ui.unit.IntOffset(
+                                    (rect.x * widthPx).toInt(),
+                                    (rect.yTop * heightPx).toInt()
+                                )
+                            }
+                            .size(
+                                width = with(density) { (rect.width * widthPx).toDp() },
+                                height = with(density) { (rect.height * heightPx).toDp() }
+                            )
+                            .background(
+                                if (isCurrent) Color(0x80FF9800)
+                                else Color(0x66FFEB3B)
+                            )
+                    )
+                }
+            }
+            // Zones de liens cliquables (URL externes et liens internes).
+            for (link in links) {
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            androidx.compose.ui.unit.IntOffset(
+                                (link.x * widthPx).toInt(),
+                                (link.yTop * heightPx).toInt()
+                            )
+                        }
+                        .size(
+                            width = with(density) { (link.width * widthPx).toDp() },
+                            height = with(density) { (link.height * heightPx).toDp() }
+                        )
+                        .clickable {
+                            val url = link.url
+                            val target = link.targetPage
+                            if (url != null) {
+                                try {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    )
+                                } catch (_: Exception) {
+                                }
+                            } else if (target != null) {
+                                onGoToPage(target)
+                            }
+                        }
+                )
+            }
+        }
     } else {
         Box(
             modifier = Modifier
@@ -335,6 +486,96 @@ private fun PdfPageItem(
             contentAlignment = Alignment.Center
         ) {
             CircularProgressIndicator()
+        }
+    }
+}
+
+@Composable
+private fun SearchBar(
+    input: String,
+    onInputChange: (String) -> Unit,
+    search: ViewerViewModel.SearchState,
+    onSearch: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onCopy: () -> Unit,
+    onClose: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInputChange,
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                placeholder = { Text(stringResource(R.string.viewer_search_hint)) },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onSearch = { onSearch() }
+                )
+            )
+            IconButton(onClick = onClose) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = stringResource(R.string.cancel)
+                )
+            }
+        }
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (search.searching) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(20.dp)
+                )
+            } else if (search.matches.isNotEmpty()) {
+                Text(
+                    text = stringResource(
+                        R.string.viewer_search_count,
+                        search.currentIndex + 1,
+                        search.matches.size
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+                IconButton(onClick = onPrevious) {
+                    Icon(
+                        Icons.Default.KeyboardArrowUp,
+                        contentDescription = stringResource(R.string.viewer_search_previous)
+                    )
+                }
+                IconButton(onClick = onNext) {
+                    Icon(
+                        Icons.Default.KeyboardArrowDown,
+                        contentDescription = stringResource(R.string.viewer_search_next)
+                    )
+                }
+                IconButton(onClick = onCopy) {
+                    Icon(
+                        Icons.Default.ContentCopy,
+                        contentDescription = stringResource(R.string.viewer_search_copy)
+                    )
+                }
+            } else if (search.query.isNotBlank()) {
+                Text(
+                    text = stringResource(R.string.viewer_search_none),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                )
+            }
         }
     }
 }
