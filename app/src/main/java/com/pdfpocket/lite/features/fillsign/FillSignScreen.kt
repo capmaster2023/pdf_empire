@@ -42,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -71,6 +72,14 @@ import com.pdfpocket.lite.pdf.FieldType
 import com.pdfpocket.lite.pdf.FormFieldInfo
 import kotlin.math.roundToInt
 
+
+private sealed interface SelectedPlacedElement {
+    val id: Long
+
+    data class Signature(override val id: Long) : SelectedPlacedElement
+    data class FreeText(override val id: Long) : SelectedPlacedElement
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FillSignScreen(
@@ -97,6 +106,17 @@ fun FillSignScreen(
     var editingField by remember { mutableStateOf<FormFieldInfo?>(null) }
     var padTarget by remember { mutableStateOf<Boolean?>(null) } // false=signature, true=paraphe
     var showTextDialog by remember { mutableStateOf(false) }
+    var selectedElement by remember { mutableStateOf<SelectedPlacedElement?>(null) }
+
+    LaunchedEffect(placed, placedTexts, selectedElement) {
+        selectedElement = when (val selected = selectedElement) {
+            is SelectedPlacedElement.Signature ->
+                selected.takeIf { placed.any { item -> item.id == selected.id } }
+            is SelectedPlacedElement.FreeText ->
+                selected.takeIf { placedTexts.any { item -> item.id == selected.id } }
+            null -> null
+        }
+    }
 
     LaunchedEffect(initialUri) {
         if (initialUri != null && state is FillSignViewModel.UiState.Empty) {
@@ -318,6 +338,58 @@ fun FillSignScreen(
                             )
                         }
 
+                        when (val selected = selectedElement) {
+                            is SelectedPlacedElement.Signature -> {
+                                val item = placed.firstOrNull { it.id == selected.id }
+                                if (item != null) {
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            horizontal = 16.dp, vertical = 4.dp
+                                        )
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.resize_signature),
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                        Slider(
+                                            value = item.placement.widthRatio,
+                                            onValueChange = {
+                                                viewModel.setSignatureSize(item.id, it)
+                                            },
+                                            valueRange = 0.03f..0.90f,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
+
+                            is SelectedPlacedElement.FreeText -> {
+                                val item = placedTexts.firstOrNull { it.id == selected.id }
+                                if (item != null) {
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            horizontal = 16.dp, vertical = 4.dp
+                                        )
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.resize_text),
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                        Slider(
+                                            value = item.heightRatio,
+                                            onValueChange = {
+                                                viewModel.setTextSize(item.id, it)
+                                            },
+                                            valueRange = 0.005f..0.08f,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
+
+                            null -> Unit
+                        }
+
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(8.dp),
@@ -337,6 +409,16 @@ fun FillSignScreen(
                                     placed = placed.filter { it.placement.pageIndex == index },
                                     placedTexts = placedTexts.filter { it.pageIndex == index },
                                     placing = placing != null,
+                                    selectedSignatureId =
+                                        (selectedElement as? SelectedPlacedElement.Signature)?.id,
+                                    selectedTextId =
+                                        (selectedElement as? SelectedPlacedElement.FreeText)?.id,
+                                    onSelectSignature = { id ->
+                                        selectedElement = SelectedPlacedElement.Signature(id)
+                                    },
+                                    onSelectText = { id ->
+                                        selectedElement = SelectedPlacedElement.FreeText(id)
+                                    },
                                     onTapField = { field ->
                                         when (field.type) {
                                             FieldType.CHECKBOX -> viewModel.toggleCheck(field.name)
@@ -477,6 +559,10 @@ private fun FillSignPage(
     placed: List<FillSignViewModel.PlacedSignature>,
     placedTexts: List<FillSignViewModel.PlacedText>,
     placing: Boolean,
+    selectedSignatureId: Long?,
+    selectedTextId: Long?,
+    onSelectSignature: (Long) -> Unit,
+    onSelectText: (Long) -> Unit,
     onTapField: (FormFieldInfo) -> Unit,
     onPlace: (Float, Float) -> Unit
 ) {
@@ -588,13 +674,22 @@ private fun FillSignPage(
                         width = with(density) { signatureWidth.toDp() },
                         height = with(density) { signatureHeight.toDp() }
                     )
+                    .then(
+                        if (selectedSignatureId == item.id) {
+                            Modifier.border(1.dp, MaterialTheme.colorScheme.primary)
+                        } else {
+                            Modifier
+                        }
+                    )
                     .pointerInput(item.id) {
                         detectTapGestures(
+                            onTap = { onSelectSignature(item.id) },
                             onLongPress = { viewModel.removeSignature(item.id) }
                         )
                     }
                     .pointerInput(item.id) {
                         detectTransformGestures { _, pan, zoom, _ ->
+                            onSelectSignature(item.id)
                             viewModel.transformPlaced(
                                 id = item.id,
                                 dxRatio = pan.x / widthPx.coerceAtLeast(1f),
@@ -621,13 +716,22 @@ private fun FillSignPage(
                             (item.yTopRatio * heightPx).roundToInt()
                         )
                     }
+                    .then(
+                        if (selectedTextId == item.id) {
+                            Modifier.border(1.dp, MaterialTheme.colorScheme.primary)
+                        } else {
+                            Modifier
+                        }
+                    )
                     .pointerInput(item.id) {
                         detectTapGestures(
+                            onTap = { onSelectText(item.id) },
                             onLongPress = { viewModel.removeText(item.id) }
                         )
                     }
                     .pointerInput(item.id) {
                         detectTransformGestures { _, pan, zoom, _ ->
+                            onSelectText(item.id)
                             viewModel.transformText(
                                 id = item.id,
                                 dxRatio = pan.x / widthPx.coerceAtLeast(1f),

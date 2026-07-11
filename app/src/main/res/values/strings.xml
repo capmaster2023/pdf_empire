@@ -103,7 +103,9 @@
     <string name="signature_clear">Effacer</string>
     <string name="tap_to_place">Touche la page à l\'endroit voulu</string>
     <string name="signature_size">Taille</string>
-    <string name="signature_drag_hint">Glisse pour déplacer, pince pour la taille, appui long pour supprimer</string>
+    <string name="resize_signature">Taille de la signature</string>
+    <string name="resize_text">Taille du texte</string>
+    <string name="signature_drag_hint">Touche une signature ou un texte pour afficher le curseur de taille. Glisse pour déplacer, pince pour redimensionner, appui long pour supprimer.</string>
     <string name="add_free_text">Texte</string>
     <string name="save_copy">Enregistrer une copie</string>
     <string name="fill_sign_done">Copie enregistrée. L\'original n\'a pas été modifié.</string>

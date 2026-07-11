@@ -305,7 +305,7 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
         placed.value = placed.value.map { item ->
             if (item.id != id) return@map item
             val current = item.placement
-            val newWidth = (current.widthRatio * zoom).coerceIn(0.08f, 0.9f)
+            val newWidth = (current.widthRatio * zoom).coerceIn(0.03f, 0.9f)
             // On garde le centre horizontal fixe pendant le pincement.
             val recenter = (current.widthRatio - newWidth) / 2f
             item.copy(
@@ -326,8 +326,35 @@ class FillSignViewModel(private val container: AppContainer) : ViewModel() {
             item.copy(
                 xRatio = (item.xRatio + dxRatio).coerceIn(0f, 0.98f),
                 yTopRatio = (item.yTopRatio + dyRatio).coerceIn(0f, 0.98f),
-                heightRatio = (item.heightRatio * zoom).coerceIn(0.008f, 0.08f)
+                heightRatio = (item.heightRatio * zoom).coerceIn(0.005f, 0.08f)
             )
+        }
+    }
+
+    /** Règle précisément la largeur d'une signature depuis le curseur. */
+    fun setSignatureSize(id: Long, widthRatio: Float) {
+        placed.value = placed.value.map { item ->
+            if (item.id != id) return@map item
+            val current = item.placement
+            val newWidth = widthRatio.coerceIn(0.03f, 0.9f)
+            val recenter = (current.widthRatio - newWidth) / 2f
+            item.copy(
+                placement = current.copy(
+                    xRatio = (current.xRatio + recenter).coerceIn(0f, 1f - newWidth),
+                    widthRatio = newWidth
+                )
+            )
+        }
+    }
+
+    /** Règle précisément la taille d'un texte libre depuis le curseur. */
+    fun setTextSize(id: Long, heightRatio: Float) {
+        placedTexts.value = placedTexts.value.map { item ->
+            if (item.id == id) {
+                item.copy(heightRatio = heightRatio.coerceIn(0.005f, 0.08f))
+            } else {
+                item
+            }
         }
     }
 
